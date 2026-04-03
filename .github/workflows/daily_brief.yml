@@ -1,0 +1,50 @@
+name: Brazos Valley Morning Brief
+
+on:
+  schedule:
+    # Weekdays at ~6:00 AM Central time.
+    # 12:00 UTC = 6:00 AM CST (Nov–Mar) / 7:00 AM CDT (Mar–Nov)
+    - cron: '0 12 * * 1-5'
+  workflow_dispatch:
+
+jobs:
+  run-brief:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run morning brief
+        env:
+          # ── AI providers (both optional — script needs at least one) ──
+          GROQ_API_KEY:            ${{ secrets.GROQ_API_KEY }}
+          GEMINI_API_KEY:          ${{ secrets.GEMINI_API_KEY }}
+          # ── Email delivery ──────────────────────────────────────────
+          GMAIL_ADDRESS:           ${{ secrets.GMAIL_ADDRESS }}
+          GMAIL_APP_PASSWORD:      ${{ secrets.GMAIL_APP_PASSWORD }}
+          RECIPIENT_EMAIL:         ${{ secrets.RECIPIENT_EMAIL }}
+          EXTRA_RECIPIENT_EMAILS:  ${{ secrets.EXTRA_RECIPIENT_EMAILS }}
+          # ── GitHub context (for webpage URL) ─────────────────────────
+          GITHUB_REPOSITORY:       ${{ github.repository }}
+        run: python brief.py
+
+      - name: Commit updated webpage
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name  "GitHub Actions"
+          git add docs/index.html
+          git diff --staged --quiet \
+            || git commit -m "Morning brief: $(date +'%Y-%m-%d')"
+          git push
