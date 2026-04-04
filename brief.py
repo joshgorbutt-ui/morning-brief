@@ -39,7 +39,7 @@ except ImportError:
     GROQ_AVAILABLE = False
 
 try:
-    import google.generativeai as genai
+    from google import genai as google_genai
     GEMINI_AVAILABLE = True
 except ImportError:
     GEMINI_AVAILABLE = False
@@ -332,7 +332,7 @@ def _parse_rss(url: str, label: str, max_items: int = 8) -> str:
                 or item.findtext("atom:summary", namespaces=ns) or ""
             )
             desc  = re.sub(r"<[^>]+>", " ", desc)
-            desc  = re.sub(r"\s+", " ", desc).strip()[:400]
+            desc  = re.sub(r"\s+", " ", desc).strip()[:150]
             link  = (
                 item.findtext("link")
                 or item.findtext("atom:link", namespaces=ns) or ""
@@ -369,48 +369,54 @@ def fetch_state_federal_sources() -> str:
     print("  Fetching state/federal RSS feeds and agency pages…")
     sections = []
 
+    # max_items=5 and desc[:200] keeps each feed compact
     sections.append(_parse_rss(
-        "https://www.tceq.texas.gov/news/rss", "TCEQ News & Enforcement"))
+        "https://www.tceq.texas.gov/news/rss",
+        "TCEQ News & Enforcement", max_items=5))
     sections.append(_scrape_page_text(
         "https://www14.tceq.texas.gov/epic/CIO/index.cfm"
         "?fuseaction=search.search&county=021",
-        "TCEQ Enforcement – Brazos County", max_chars=2000))
+        "TCEQ Enforcement – Brazos County", max_chars=1000))
     sections.append(_parse_rss(
-        "https://gov.texas.gov/news/rss", "Texas Governor Press Releases"))
+        "https://gov.texas.gov/news/rss",
+        "Texas Governor Press Releases", max_items=5))
     sections.append(_parse_rss(
-        "https://www.texastribune.org/feeds/latest/", "Texas Tribune – Latest"))
+        "https://www.texastribune.org/feeds/latest/",
+        "Texas Tribune – Latest", max_items=5))
     sections.append(_parse_rss(
         "https://www.texastribune.org/feeds/education/",
-        "Texas Tribune – Education"))
+        "Texas Tribune – Education", max_items=4))
     sections.append(_parse_rss(
         "https://www.federalregister.gov/api/v1/documents.rss"
         "?conditions[agencies][]=department-of-agriculture"
         "&conditions[states][]=TX",
-        "Federal Register – USDA / Texas"))
+        "Federal Register – USDA / Texas", max_items=4))
     sections.append(_parse_rss(
         "https://www.federalregister.gov/api/v1/documents.rss"
         "?conditions[agencies][]=environmental-protection-agency"
         "&conditions[states][]=TX",
-        "Federal Register – EPA / Texas"))
+        "Federal Register – EPA / Texas", max_items=4))
     sections.append(_parse_rss(
         "https://www.federalregister.gov/api/v1/documents.rss"
         "?conditions[agencies][]=department-of-housing-and-urban-development"
         "&conditions[states][]=TX",
-        "Federal Register – HUD / Texas"))
+        "Federal Register – HUD / Texas", max_items=4))
     sections.append(_scrape_page_text(
         "https://www.fsa.usda.gov/state-offices/Texas/news-and-events/index",
-        "USDA FSA – Texas News", max_chars=2000))
+        "USDA FSA – Texas News", max_chars=1000))
     sections.append(_parse_rss(
         "https://tea.texas.gov/about-tea/news-and-multimedia/news-releases",
-        "Texas Education Agency News"))
+        "Texas Education Agency News", max_items=4))
     sections.append(_scrape_page_text(
         "https://www.tdcj.texas.gov/divisions/cmhc/news.html",
-        "TDCJ News", max_chars=2000))
+        "TDCJ News", max_chars=800))
     sections.append(_scrape_page_text(
         "https://www.txdot.gov/about/newsroom/statewide.html",
-        "TxDOT Statewide News", max_chars=1500))
+        "TxDOT Statewide News", max_chars=800))
 
-    return "\n\n".join(sections)
+    # Hard cap on total state/federal content to keep prompt under 11k tokens
+    combined = "\n\n".join(sections)
+    return combined[:18000]
 
 
 # ─────────────────────────────────────────────────────────────
@@ -513,19 +519,22 @@ def _try_groq(prompt: str, attempt: int = 1) -> list[dict] | None:
 
 def _try_gemini(prompt: str) -> list[dict] | None:
     """
-    Call Gemini API. Returns parsed pitches or None on any failure.
+    Call Gemini API using the new google-genai package.
+    Returns parsed pitches or None on any failure.
     """
     if not GEMINI_AVAILABLE or not GEMINI_API_KEY:
         print("  [Gemini] Skipped — library not installed or key missing.")
         return None
 
     try:
-        genai.configure(api_key=GEMINI_API_KEY)
-        model = genai.GenerativeModel("gemini-1.5-flash")
-        print("  [Gemini] Calling Gemini 1.5 Flash (fallback)…")
+        client = google_genai.Client(api_key=GEMINI_API_KEY)
+        print("  [Gemini] Calling Gemini 2.0 Flash (fallback)…")
 
-        response = model.generate_content(prompt)
-        pitches  = _parse_pitches_from_text(response.text)
+        response = client.models.generate_content(
+            model="gemini-2.0-flash",
+            contents=prompt,
+        )
+        pitches = _parse_pitches_from_text(response.text)
 
         if pitches:
             print(f"  [Gemini] ✓ {len(pitches)} pitches parsed.")
@@ -797,3 +806,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
